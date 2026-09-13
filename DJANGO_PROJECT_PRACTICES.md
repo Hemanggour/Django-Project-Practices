@@ -664,11 +664,13 @@ urlpatterns = [
 ### 10.2 Route patterns
 
 - **Trailing slashes** everywhere.
+- **Resource path segments are always plural** (`songs/`, `artists/`, `playlists/`);
+  action verbs stay singular (`upload/`, `stream/`, `share/`, `delete/`).
 - **Dynamic segments use the UUID converter and the exact serializer field name:**
   ```python
-  path("song/<uuid:song_uuid>/", SongView.as_view())
-  path("artist/<uuid:artist_uuid>/", ArtistView.as_view())
-  path("playlist/<uuid:playlist_uuid>/", PlaylistView.as_view())
+  path("songs/<uuid:song_uuid>/", SongView.as_view())
+  path("artists/<uuid:artist_uuid>/", ArtistView.as_view())
+  path("playlists/<uuid:playlist_uuid>/", PlaylistView.as_view())
   ```
   Because the segment name (`song_uuid`) matches `SongKwargsSerializer` fields,
   `self.kwargs` can be passed straight into `data=self.kwargs`.
@@ -683,9 +685,9 @@ resource's different actions. The view disambiguates by (a) HTTP method and
 
 ```python
 path("songs/", SongView.as_view()),                       # GET list / POST upload
-path("song/upload/", SongView.as_view()),                 # POST upload
-path("song/<uuid:song_uuid>/", SongView.as_view()),       # GET one
-path("song/delete/<uuid:song_uuid>/", SongView.as_view()),# DELETE
+path("songs/upload/", SongView.as_view()),                # POST upload
+path("songs/<uuid:song_uuid>/", SongView.as_view()),      # GET one
+path("songs/delete/<uuid:song_uuid>/", SongView.as_view()), # DELETE
 ```
 
 ### 10.4 Verb-style action URLs
@@ -693,15 +695,15 @@ path("song/delete/<uuid:song_uuid>/", SongView.as_view()),# DELETE
 Non-CRUD actions get explicit verb URLs instead of nested REST resources:
 
 ```
-song/upload/
-song/stream/<uuid:song_uuid>/
-song/share/
-song/share/<uuid:shared_uuid>/
-song/share/stream/<uuid:shared_uuid>/
-playlist/<uuid:playlist_uuid>/songs/
-playlist/song/add/<uuid:playlist_uuid>/
-playlist/song/remove/<uuid:playlist_uuid>/
-playlists/song/<uuid:song_uuid>/      # playlists for a song (isAdded)
+songs/upload/
+songs/stream/<uuid:song_uuid>/
+songs/share/
+songs/share/<uuid:shared_uuid>/
+songs/share/stream/<uuid:shared_uuid>/
+playlists/<uuid:playlist_uuid>/songs/
+playlists/songs/add/<uuid:playlist_uuid>/
+playlists/songs/remove/<uuid:playlist_uuid>/
+playlists/songs/<uuid:song_uuid>/      # playlists for a song (isAdded)
 songs/ · artists/ · albums/ · playlists/   # list endpoints
 playback-queue/
 ```
@@ -711,10 +713,10 @@ Summary of URL conventions:
 | Convention | Example |
 |---|---|
 | List endpoint (plural) | `songs/`, `artists/`, `albums/`, `playlists/` |
-| Detail endpoint (singular + uuid) | `song/<uuid:song_uuid>/` |
-| Action endpoint (verb) | `song/upload/`, `song/delete/`, `song/stream/` |
-| Sub-resource | `playlist/<uuid>/songs/` |
-| Composite lookup | `playlists/song/<uuid:song_uuid>/` |
+| Detail endpoint (plural + uuid) | `songs/<uuid:song_uuid>/` |
+| Action endpoint (verb) | `songs/upload/`, `songs/delete/`, `songs/stream/` |
+| Sub-resource | `playlists/<uuid>/songs/` |
+| Composite lookup | `playlists/songs/<uuid:song_uuid>/` |
 
 ---
 
