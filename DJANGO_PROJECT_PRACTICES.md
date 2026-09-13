@@ -3,7 +3,7 @@
 > **Source:** Sound-Node (`BACKEND/`)
 > **Purpose:** This document captures the Django + DRF engineering conventions used in this project. Use it as a reference to build new modules, endpoints, or entirely new Django projects with the same style.
 >
-> **Stack:** Django 5, Django REST Framework, PostgreSQL, SimpleJWT (cookie-based), S3/MinIO or local file storage.
+> **Stack:** Django 5, Django REST Framework, PostgreSQL, SimpleJWT (cookie-based), S3/MinIO object storage via django-storages.
 
 ---
 
@@ -297,7 +297,6 @@ Views must stay thin. Complex/multi-step flows live in `<app>/services/` as
 music/services/
 ├── upload_service.py      # multi-step upload pipeline
 ├── storage_service.py     # temp file, move, delete helpers
-├── streaming_service.py   # HTTP Range streaming
 ├── metadata_service.py    # mutagen/ffmpeg tag extraction & stripping
 ├── thumbnail_service.py   # PIL thumbnail generation
 └── s3_service.py          # presigned URL generation
@@ -306,13 +305,11 @@ music/services/
 Rules:
 
 - Functions take concrete inputs (`upload_song(file, user)`) and return objects
-  or raise; they do **not** take `request` unless needed (streaming).
+  or raise.
 - Services use low-level django primitives: `default_storage`, `transaction.atomic()`,
   `get_or_create`, `ContentFile`, etc.
 - Long pipelines are written as numbered, commented steps.
 - On failure, resources are cleaned up (`try/except` with file deletion + re-raise).
-- **Storage backend branching lives inside services**:
-  `if settings.STORAGE_BACKEND == "s3": ... else: ...`.
 
 ---
 
@@ -457,7 +454,7 @@ def get(self, *args, **kwargs):
 
     song_objs = Song.objects.filter(
         uploaded_by=user_obj,
-        is_uploaded_to_cloud=settings.STORAGE_BACKEND == "s3",
+        is_uploaded_to_cloud=True,
         is_upload_complete=True,
     )
     q = query_serializer.validated_data.get("q")
@@ -636,9 +633,8 @@ Shape (DRF `PageNumberPagination` default, matches frontend `PaginatedResponse`)
 
 ### 9.3 Specialized responses
 
-Streaming endpoints return dedicated shapes (not the wrapper):
-`{"url": ..., "type": ..., "song": {...}}` (JSON with a presigned URL) or a raw
-`StreamingHttpResponse` with HTTP Range support.
+Streaming endpoints return a dedicated shape (not the wrapper):
+`{"url": ..., "type": ..., "song": {...}}` (JSON with a presigned URL).
 
 ---
 
@@ -658,8 +654,7 @@ urlpatterns = [
 
 - The auth app gets its own prefix (`/api/account/...`); feature apps sit flat
   under `/api/`.
-- Media served in local mode: `urlpatterns += static(settings.MEDIA_URL, ...)` when
-  `settings.STORAGE_BACKEND == "local"`.
+- Media is served from object storage; web URLs resolve through S3 presigned URLs.
 
 ### 10.2 Route patterns
 
@@ -763,19 +758,18 @@ class SongAdmin(admin.ModelAdmin):
 
 ## 13. File Storage Abstraction
 
-- **Environment switch:** `STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local")`
-  (`"local"` or `"s3"`).
-- `local` → `FileSystemStorage`, `MEDIA_ROOT = BASE_DIR / "media"`, `MEDIA_URL = "/media/"`.
-- `s3` → custom `PublicS3Boto3Storage` (`utils/storage.py`) wrapping `storages`:
+Object storage is the **single backend**; no local file fallback.
+
+- Configured with **django-storages** via the standard Django storage setting
+  (`STORAGES["default"]` / `DEFAULT_FILE_STORAGE`) pointing at the S3-compatible
+  backend (`storages.backends.s3boto3.S3Boto3Storage`).
+- A custom `PublicS3Boto3Storage` (`utils/storage.py`) wrapping `storages`:
   - rewrites internal MinIO endpoint URLs to public ones,
   - strips query strings from public thumbnails.
 - Business code (models, views) only uses `upload_to` + `default_storage` /
-  `FileField` — it never branches on the backend; branching is isolated in
-  `services/`.
-- Logic checks often use the idiom
-  `is_uploaded_to_cloud = settings.STORAGE_BACKEND == "s3"`.
-- S3 media is served to clients via **presigned URLs** (public endpoint);
-  local media via **HTTP Range streaming** (`streaming_service.py`).
+  `FileField` — all through the standard Django storage API; it never branches on
+  backend type.
+- S3 media is served to clients via **presigned URLs** (public endpoint).
 
 ---
 
@@ -799,10 +793,9 @@ python manage.py collectstatic --noinput
 exec python -m gunicorn project.wsgi:application --bind 0.0.0.0:8000 --workers 1
 ```
 
-- Docker Compose services: `db` (Postgres), `minio` (S3-compatible), `backend`
-  (gunicorn), `frontend`, `nginx` (reverse proxy).
-- Nginx owns traffic routing, frontend static serving, `keepalive`, and streaming
-  passthrough.
+- Docker Compose services: `db` (Postgres), `minio` (S3-compatible object
+  storage), `backend` (gunicorn), `frontend`, `nginx` (reverse proxy).
+- Nginx owns traffic routing, frontend static serving, and `keepalive`.
 
 ---
 
@@ -824,7 +817,6 @@ Use this checklist to build a new module in the same style as this project.
 
 **Services** (if logic is non-trivial)
 - [ ] `<app>/services/<domain>_service.py`, plain functions.
-- [ ] Storage-backend branching inside services, not models/views.
 
 **Serializers**
 - [ ] Output → `<Entity>ModelSerializer` in `serializers.py`.
